@@ -1,3 +1,4 @@
 */.ipynb_checkpoints/
-*/pretrained_models/
-*/wav2vec2_checkpoints/
+**/__pycache__/
+pretrained_models/
+wav2vec2_checkpoints/
