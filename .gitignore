@@ -2,3 +2,4 @@
 **/__pycache__/
 pretrained_models/
 wav2vec2_checkpoints/
+*/weights/
