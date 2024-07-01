@@ -35,7 +35,7 @@ class SER:
 
         _, _, _, label = self.cls_model.classify_batch(audio)
         dims = self.reg_model(audio).detach()[0]
-        return label[0], {'Arousal': dims[0], 'dominance':dims[1], 'valence':dims[2]}
+        return label[0], {'Arousal': dims[0].item(), 'dominance':dims[1].item(), 'valence':dims[2].item()}
     
     def recognize_file(self, file_path, verbose=True):
         x, _ = librosa.load(file_path, sr=self.sr)
