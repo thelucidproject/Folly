@@ -177,7 +177,7 @@ class SpeechInformationRetreiver:
         emo_dims = np.stack(emo_dims).T
         return {
             'text': asr_res, 
-            'length' : x.shape[0] // self.sr
+            'length' : x.shape[0] // self.sr,
             'emotion_labels': emo_labels, 
             'arousal' : emo_dims[0], 
             'dominance': emo_dims[1], 
