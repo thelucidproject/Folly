@@ -18,7 +18,7 @@ from BeatNet.BeatNet import BeatNet
 
 
 
-class MIR:
+class MusicInformationRetreiver:
     def __init__(self, weights_path, distance_threshold=0.1):
         self.sr = 16000
         self.threshold = distance_threshold
@@ -67,6 +67,7 @@ class MIR:
 
         emb = self.musicnn_embedding_model(x)
         emo_pred = self.emo_head(emb)
+        emo_pred = (emo_pred - 1) / 8
         return genre_pred, inst_pred, emo_pred
         
 
@@ -91,15 +92,18 @@ class MIR:
             emo_preds += [res[2]]
         
         beats = self.beat_estimator.process(audio_path=file_path)
+        emo_preds = np.concatenate(emo_preds, axis=0)
         
         return {
             'key': '-'.join(key[:2]),
             'beats' : beats,
+            'length': int(length),
             'tempo' : beats.shape[0] * 60 // length,
             'segments': segments,
             'genre': np.concatenate(genre_preds, axis=0), 
             'instrument': np.concatenate(inst_preds, axis=0), 
-            'emotion': np.concatenate(emo_preds, axis=0), 
+            'valence': emo_preds[:, 0], 
+            'arousal': emo_preds[:, 1]
         }
         
         

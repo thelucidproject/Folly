@@ -1,1 +1,1 @@
-from .mir import MIR
+from .mir import MusicInformationRetreiver
