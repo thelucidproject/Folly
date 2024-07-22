@@ -158,7 +158,6 @@ class SpeechInformationRetreiver:
         _, _, _, label = self.emo_cls_model.classify_batch(audio)
         dims = self.emo_reg_model(audio).detach()[0]
         return label[0], dims[0].item(), dims[1].item(), dims[2].item()
-    
 
     def recognize_file(self, file_path, verbose=True):
         self._reset_asr_parameters()
@@ -168,15 +167,24 @@ class SpeechInformationRetreiver:
         prog = trange if verbose else range
         emo_labels = []
         emo_dims = []
+        text = ['']
+        prev = ''
         for i in prog(k):
             asr_res = self.transcribe_chunk(x[i*m : (i+1)*m], normalize=False)
+            if asr_res == prev:
+                text += ['']
+            else:
+                prev_len = len(prev)
+                text += [asr_res[prev_len:]]
+            prev = asr_res
+            
             emo_res = self.recognize_chunk(x[i*m : (i+1)*m], normalize=False)
             emo_labels += [emo_res[0]]
             emo_dims += [emo_res[1:]]
 
         emo_dims = np.stack(emo_dims).T
         return {
-            'text': asr_res, 
+            'text': text[1:], 
             'length' : x.shape[0] // self.sr,
             'emotion_labels': emo_labels, 
             'arousal' : emo_dims[0], 
