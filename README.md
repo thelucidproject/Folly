@@ -3,7 +3,7 @@
 ## Installations
 Use python <= 3.10
 ```
-apt-get update && apt-get install -y libsndfile1 ffmpeg
+apt-get update && apt-get install -y libsndfile1 ffmpeg portaudio19-dev
 python3.10 -m venv lucid_env
 source lucid_env/bin/activate
 
