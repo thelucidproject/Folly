@@ -14,7 +14,8 @@ from essentia.standard import (
     TensorflowPredict2D
 )
 
-from BeatNet.BeatNet import BeatNet
+from .bridge import MusicBridge
+# from BeatNet.BeatNet import BeatNet
 
 
 
@@ -42,6 +43,8 @@ class MusicInformationRetreiver:
             graphFilename=f"{weights_path}/emomusic-msd-musicnn-2.pb", output="model/Identity"
         )
 
+        self.bridge = MusicBridge(self.genre_classes, self.inst_classes)
+
 
     def _extract_segments(self, audio):
         S = np.abs(librosa.stft(audio))
@@ -68,7 +71,7 @@ class MusicInformationRetreiver:
         
 
 
-    def recognize_file(self, file_path, verbose=True):
+    def _recognize_file(self, file_path, verbose=True):
         audio, _ = librosa.load(file_path, sr=self.sr)
         length = audio.shape[0] / self.sr
         
@@ -104,6 +107,11 @@ class MusicInformationRetreiver:
             'valence': emo_preds[:, 0], 
             'arousal': emo_preds[:, 1]
         }
+
+    def __call__(self, file_path, class_threshold=0.3, verbpose=True):
+        res = self._recognize_file(file_path, verbose=verbpose)
+        segments = self.bridge.extract_segments(res, class_threshold=class_threshold)
+        return segments
         
         
         

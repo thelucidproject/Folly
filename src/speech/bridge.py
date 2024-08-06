@@ -34,15 +34,15 @@ class SpeechBridge:
                 'start' : events[i]['start'],
                 'end' : events[j-1]['end'],
                 'duration' : events[j-1]['end'] - events[i]['start'],
-                'arousal' : sum([e['arousal'] for e in events[i:j]]) / (j - i),
-                'valence' : sum([e['valence'] for e in events[i:j]]) / (j - i),
-                'dominance' : sum([e['dominance'] for e in events[i:j]]) / (j - i)
+                # 'arousal' : sum([e['arousal'] for e in events[i:j]]) / (j - i),
+                # 'valence' : sum([e['valence'] for e in events[i:j]]) / (j - i),
+                # 'dominance' : sum([e['dominance'] for e in events[i:j]]) / (j - i)
             }]
             i = j
         return res
         
 
-    def to_events(self, asr_res, max_dist=1., extract_kw=False):
+    def __call__(self, asr_res, max_dist=1., extract_kw=False):
         va = np.array([0 if r == '' else 1 for r in asr_res['text']])
         bin = asr_res['length'] / len(asr_res['text'])
         times = np.arange(0, asr_res['length'], bin)
@@ -62,9 +62,9 @@ class SpeechBridge:
                 'start' : times[on],
                 'end' : times[off],
                 'duration' : times[off] - times[on],
-                'arousal' : asr_res['arousal'][on:off].mean(),
-                'valence' : asr_res['valence'][on:off].mean(),
-                'dominance' : asr_res['dominance'][on:off].mean()
+                # 'arousal' : asr_res['arousal'][on:off].mean(),
+                # 'valence' : asr_res['valence'][on:off].mean(),
+                # 'dominance' : asr_res['dominance'][on:off].mean()
             }]
             
         events = self._refine_events(events, max_dist)

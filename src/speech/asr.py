@@ -6,16 +6,18 @@ import librosa
 from omegaconf import OmegaConf, open_dict
 from tqdm.autonotebook import trange
 
-from speechbrain.inference.interfaces import foreign_class
-from .emo_dim import EmotionDimensionModel
-
 import nemo.collections.asr as nemo_asr
 from nemo.collections.asr.models.ctc_bpe_models import EncDecCTCModelBPE
 from nemo.collections.asr.parts.utils.streaming_utils import CacheAwareStreamingAudioBuffer
 from nemo.collections.asr.parts.utils.rnnt_utils import Hypothesis
+from speechbrain.inference.interfaces import foreign_class
+
+from .emo_dim import EmotionDimensionModel
+from .bridge import SpeechBridge
+
 
 class SpeechInformationRetreiver:
-    def __init__(self, model_name, decoder_type='ctc', lookahead_size=80, device='cpu'):
+    def __init__(self, model_name, decoder_type='ctc', lookahead_size=80, num_keywords=5, device='cpu'):
         self.sr = 16000
         self.device = device
         self.model_name = model_name
@@ -24,16 +26,17 @@ class SpeechInformationRetreiver:
         self.lookahead_size = lookahead_size 
         self.chunk_size = self.lookahead_size + self.encoder_step_length
 
-        ## SER
-        self.emo_cls_model = foreign_class(
-            source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP", 
-            pymodule_file="custom_interface.py", 
-            classname="CustomEncoderWav2vec2Classifier"
-        ).to(device)
+        self.bridge = SpeechBridge(num_keywords=num_keywords)
 
-        self.emo_reg_model = EmotionDimensionModel.from_pretrained(
-            'audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim'
-        ).to(device)
+        # ## SER
+        # self.emo_cls_model = foreign_class(
+        #     source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP", 
+        #     pymodule_file="custom_interface.py", 
+        #     classname="CustomEncoderWav2vec2Classifier"
+        # ).to(device)
+        # self.emo_reg_model = EmotionDimensionModel.from_pretrained(
+        #     'audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim'
+        # ).to(device)
 
         
         self._setup_asr_model()
@@ -61,12 +64,10 @@ class SpeechInformationRetreiver:
     def _setup_preprocessor(self):
         cfg = copy.deepcopy(self.asr_model._cfg)
         OmegaConf.set_struct(cfg.preprocessor, False)
-
         # some changes for streaming scenario
         cfg.preprocessor.dither = 0.0
         cfg.preprocessor.pad_to = 0
         cfg.preprocessor.normalize = "None"
-        
         self.preprocessor = EncDecCTCModelBPE.from_config_dict(cfg.preprocessor).to(self.device)
 
     
@@ -104,7 +105,7 @@ class SpeechInformationRetreiver:
         return transcriptions
     
 
-    def transcribe_chunk(self, new_chunk, normalize=True):
+    def _transcribe_chunk(self, new_chunk, normalize=True):
         # new_chunk is provided as np.int16, so we convert it to np.float32
         # as that is what our ASR models expect
         audio_data = new_chunk.astype(np.float32)
@@ -149,19 +150,20 @@ class SpeechInformationRetreiver:
         return self._extract_transcriptions(transcribed_texts)[0]
 
     
-    def recognize_chunk(self, new_chunk, normalize=True):
-        audio = new_chunk.astype(np.float32)
-        if normalize:
-            audio = audio / 32768.0
-        audio = torch.tensor(audio).unsqueeze(0).to(self.device)
+    # def _recognize_chunk(self, new_chunk, normalize=True):
+    #     audio = new_chunk.astype(np.float32)
+    #     if normalize:
+    #         audio = audio / 32768.0
+    #     audio = torch.tensor(audio).unsqueeze(0).to(self.device)
 
-        _, _, _, label = self.emo_cls_model.classify_batch(audio)
-        dims = self.emo_reg_model(audio).detach()[0]
-        return label[0], dims[0].item(), dims[1].item(), dims[2].item()
+    #     _, _, _, label = self.emo_cls_model.classify_batch(audio)
+    #     dims = self.emo_reg_model(audio).detach()[0]
+    #     return label[0], dims[0].item(), dims[1].item(), dims[2].item()
 
-    def recognize_file(self, file_path, verbose=True):
+    def _recognize_file(self, file_path, verbose=True):
         self._reset_asr_parameters()
         x, _ = librosa.load(file_path, sr=self.sr)
+
         m = int(self.chunk_size * self.sr / 1000)
         k = x.shape[0] // m
         prog = trange if verbose else range
@@ -170,7 +172,7 @@ class SpeechInformationRetreiver:
         text = ['']
         prev = ''
         for i in prog(k):
-            asr_res = self.transcribe_chunk(x[i*m : (i+1)*m], normalize=False)
+            asr_res = self._transcribe_chunk(x[i*m : (i+1)*m], normalize=False)
             if asr_res == prev:
                 text += ['']
             else:
@@ -178,18 +180,24 @@ class SpeechInformationRetreiver:
                 text += [asr_res[prev_len:]]
             prev = asr_res
             
-            emo_res = self.recognize_chunk(x[i*m : (i+1)*m], normalize=False)
-            emo_labels += [emo_res[0]]
-            emo_dims += [emo_res[1:]]
+            # emo_res = self.recognize_chunk(x[i*m : (i+1)*m], normalize=False)
+            # emo_labels += [emo_res[0]]
+            # emo_dims += [emo_res[1:]]
 
-        emo_dims = np.stack(emo_dims).T
+        # emo_dims = np.stack(emo_dims).T
         return {
             'text': text[1:], 
             'length' : x.shape[0] // self.sr,
-            'emotion_labels': emo_labels, 
-            'arousal' : emo_dims[0], 
-            'dominance': emo_dims[1], 
-            'valence' : emo_dims[2]
+            # 'emotion_labels': emo_labels, 
+            # 'arousal' : emo_dims[0], 
+            # 'dominance': emo_dims[1], 
+            # 'valence' : emo_dims[2]
         }
+
+    def __call__(self, file_path, max_dist=1., extract_kw=False, verbose=True):
+        res = self._recognize_file(file_path, verbose=verbose)
+        segments = self.bridge(res, max_dist=max_dist, extract_kw=extract_kw)
+        return segments
+        
 
             
