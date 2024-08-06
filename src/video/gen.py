@@ -44,7 +44,7 @@ class VideoGenerator:
         width=512, 
         height=512, 
         seed=7, 
-        negative_prompts=None
+        negative_prompt=None
     ):
         
         self.pipeline = StableDiffusionPipeline.from_pretrained(
@@ -58,10 +58,10 @@ class VideoGenerator:
         self.noise_shape = (1, self.pipeline.unet.config.in_channels, height // 8, width // 8)
         self.rand_generator = torch.Generator(device='cuda').manual_seed(seed)
 
-        self.negative_prompts = negative_prompts
+        self.negative_prompt = negative_prompt
 
     def _refine_prompt(self, text, style):
-        return f'an image of {text} in the style of {style}.'
+        return f'an image of {text} in the style of {style}, '
 
     def _generate_noise(self, music_segments, music_amps, fps):
         N = len(music_segments)
@@ -195,7 +195,7 @@ class VideoGenerator:
         for i in tqdm(range(n // batch_size + 1)):
             noise = noise_latents[i*batch_size : (i+1)*batch_size]
             text_emb = text_embeddings[i*batch_size : (i+1)*batch_size]
-            neg_prompt = None if self.negative_prompts is None else self.negative_prompts*noise.shape[0]
+            neg_prompt = None if self.negative_prompt is None else [self.negative_prompt]*noise.shape[0]
             frames += self.pipeline(
                 height=self.height, 
                 width=self.width, 

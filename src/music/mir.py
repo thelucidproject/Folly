@@ -15,7 +15,6 @@ from essentia.standard import (
 )
 
 from .bridge import MusicBridge
-# from BeatNet.BeatNet import BeatNet
 
 
 
@@ -23,8 +22,6 @@ class MusicInformationRetreiver:
     def __init__(self, weights_path, segment_threshold=0.1):
         self.sr = 16000
         self.threshold = segment_threshold
-
-        # self.beat_estimator = BeatNet(1, mode='offline', inference_model='DBN', thread=False)
         
         self.effnet_embedding_model = TensorflowPredictEffnetDiscogs(
             graphFilename=f"{weights_path}/discogs-effnet-bs64-1.pb", 
