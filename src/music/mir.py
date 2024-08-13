@@ -14,15 +14,13 @@ from essentia.standard import (
     TensorflowPredict2D
 )
 
-from .bridge import MusicBridge
 
 
 
 class MusicInformationRetreiver:
-    def __init__(self, weights_path, segment_threshold=0.1):
+    def __init__(self, weights_path, fps=20):
         self.sr = 16000
-        self.threshold = segment_threshold
-        
+        self.hop_length = int(self.sr / fps)
         self.effnet_embedding_model = TensorflowPredictEffnetDiscogs(
             graphFilename=f"{weights_path}/discogs-effnet-bs64-1.pb", 
             output="PartitionedCall:1"
@@ -40,75 +38,74 @@ class MusicInformationRetreiver:
             graphFilename=f"{weights_path}/emomusic-msd-musicnn-2.pb", output="model/Identity"
         )
 
-        self.bridge = MusicBridge(self.genre_classes, self.inst_classes)
 
-
-    def _extract_segments(self, audio):
-        S = np.abs(librosa.stft(audio))
+    def _extract_segment_bounds(self, audio, threshold=0.1):
+        S = np.abs(librosa.stft(audio, hop_length=self.hop_length))
         clusterer = AgglomerativeClustering(
             n_clusters=None,
-            distance_threshold=self.threshold,
+            distance_threshold=threshold,
             connectivity=grid_to_graph(n_x=S.shape[1], n_y=1, n_z=1)
         )
 
         segs = librosa.segment.agglomerative(data=S / np.linalg.norm(S), k=None, clusterer=clusterer)
         segs = librosa.frames_to_time(segs, sr=self.sr)
-        return segs
+        return segs.tolist()
 
 
-    def _predict_chunk(self, x):
-        emb = self.effnet_embedding_model(x)
-        genre_pred = self.genre_head(emb)
-        inst_pred = self.inst_head(emb)
-
-        emb = self.musicnn_embedding_model(x)
+    def _predict_segment(self, seg, genre_threshold=0.3, inst_threshold=0.3):
+        emb = self.musicnn_embedding_model(seg)
         emo_pred = self.emo_head(emb)
         emo_pred = (emo_pred - 1) / 8
-        return genre_pred, inst_pred, emo_pred, 
+        valence, arousal = emo_pred[:, 0], emo_pred[:, 1]
+
+        emb = self.effnet_embedding_model(seg)
+        genre_pred = self.genre_head(emb).mean(axis=0)
+        inst_pred = self.inst_head(emb).mean(axis=0)
+        
+        genre_ids = np.where(genre_pred > genre_threshold)[0]
+        genre = [self.genre_classes[gid] for gid in genre_ids]
+        
+        inst_ids = np.where(inst_pred > inst_threshold)[0]
+        instrument = [self.inst_classes[iid] for iid in inst_ids]
+        return {
+            'valence' : valence.tolist(), 
+            'arousal': arousal.tolist(),
+            'genre': genre, 
+            'instrument': instrument
+        }
         
 
 
-    def _recognize_file(self, file_path, verbose=True):
+    def __call__(
+        self, 
+        file_path, 
+        segment_threshold=0.1, 
+        add_segment_info=False,
+        genre_threshold=0.3, 
+        inst_threshold=0.3
+    ):
+        
         audio, _ = librosa.load(file_path, sr=self.sr)
         length = audio.shape[0] / self.sr
+
+        onset_env = librosa.onset.onset_strength(y=audio, sr=self.sr, hop_length=self.hop_length)
+        onset_env = onset_env / onset_env.max()
         
         ## segment boundaries
-        segments = self._extract_segments(audio)
-        
-        ## Beat and Tempo
-        tempo, beats = librosa.beat.beat_track(y=audio, sr=self.sr)
-        beats = librosa.frames_to_time(beats, sr=self.sr)
-        
-        # beats = self.beat_estimator.process(audio_path=file_path)[:, 0]
+        bounds = self._extract_segment_bounds(audio, segment_threshold) + [length]
+        segments = []
 
-        m = int(30 * self.sr)
-        k = audio.shape[0] // m
-        prog = trange if verbose else range
-        genre_preds = []
-        inst_preds = []
-        emo_preds = []
-        for i in prog(k):
-            res = self._predict_chunk(audio[i*m : (i+1)*m])
-            genre_preds += [res[0]]
-            inst_preds += [res[1]]
-            emo_preds += [res[0]]
-        emo_preds = np.concatenate(emo_preds, axis=0)
-        
-        return {
-            'beats' : beats,
-            'length': length,
-            'segments': segments[1:],
-            'tempo' : int(tempo[0]),
-            'genre': np.concatenate(genre_preds, axis=0), 
-            'instrument': np.concatenate(inst_preds, axis=0), 
-            'valence': emo_preds[:, 0], 
-            'arousal': emo_preds[:, 1]
-        }
-
-    def __call__(self, file_path, class_threshold=0.3, verbpose=True):
-        res = self._recognize_file(file_path, verbose=verbpose)
-        segments = self.bridge.extract_segments(res, class_threshold=class_threshold)
-        return segments
-        
-        
+        prog = trange if add_segment_info else range
+        for i in prog(1, len(bounds)):
+            seg = {
+                'start': np.round(bounds[i-1], 3),
+                'end' : np.round(bounds[i], 3), 
+                'duration' : np.round(bounds[i] - bounds[i-1], 3)
+            }
+            if add_segment_info:
+                start = int(seg['start'] * self.sr)
+                end = int(seg['end'] * self.sr)
+                seg |= self._predict_segment(audio[start:end], genre_threshold, inst_threshold)
+            segments += [seg]
+        return segments, onset_env
         

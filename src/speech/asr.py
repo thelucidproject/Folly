@@ -13,7 +13,7 @@ from nemo.collections.asr.parts.utils.rnnt_utils import Hypothesis
 from speechbrain.inference.interfaces import foreign_class
 
 from .emo_dim import EmotionDimensionModel
-from .bridge import SpeechBridge
+from .processor import PostProcessor
 
 
 class SpeechInformationRetreiver:
@@ -26,17 +26,18 @@ class SpeechInformationRetreiver:
         self.lookahead_size = lookahead_size 
         self.chunk_size = self.lookahead_size + self.encoder_step_length
 
-        self.bridge = SpeechBridge(num_keywords=num_keywords)
+        self.post_processor = PostProcessor(num_keywords=num_keywords)
 
-        # ## SER
-        # self.emo_cls_model = foreign_class(
-        #     source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP", 
-        #     pymodule_file="custom_interface.py", 
-        #     classname="CustomEncoderWav2vec2Classifier"
-        # ).to(device)
-        # self.emo_reg_model = EmotionDimensionModel.from_pretrained(
-        #     'audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim'
-        # ).to(device)
+        ## SER
+        self.emo_cls_model = foreign_class(
+            source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP", 
+            pymodule_file="custom_interface.py", 
+            classname="CustomEncoderWav2vec2Classifier",
+            run_opts={"device":"cuda"}
+        )
+        self.emo_reg_model = EmotionDimensionModel.from_pretrained(
+            'audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim'
+        ).to(device)
 
         
         self._setup_asr_model()
@@ -150,17 +151,17 @@ class SpeechInformationRetreiver:
         return self._extract_transcriptions(transcribed_texts)[0]
 
     
-    # def _recognize_chunk(self, new_chunk, normalize=True):
-    #     audio = new_chunk.astype(np.float32)
-    #     if normalize:
-    #         audio = audio / 32768.0
-    #     audio = torch.tensor(audio).unsqueeze(0).to(self.device)
+    def _recognize_chunk(self, new_chunk, normalize=True):
+        audio = new_chunk.astype(np.float32)
+        if normalize:
+            audio = audio / 32768.0
+        audio = torch.tensor(audio).unsqueeze(0).to(self.device)
+        
+        _, _, _, label = self.emo_cls_model.classify_batch(audio)
+        dims = self.emo_reg_model(audio).detach()[0]
+        return label[0], dims[0].item(), dims[1].item(), dims[2].item()
 
-    #     _, _, _, label = self.emo_cls_model.classify_batch(audio)
-    #     dims = self.emo_reg_model(audio).detach()[0]
-    #     return label[0], dims[0].item(), dims[1].item(), dims[2].item()
-
-    def _recognize_file(self, file_path, verbose=True):
+    def _recognize_file(self, file_path, add_emotion_info=False, verbose=True):
         self._reset_asr_parameters()
         x, _ = librosa.load(file_path, sr=self.sr)
 
@@ -172,31 +173,36 @@ class SpeechInformationRetreiver:
         text = ['']
         prev = ''
         for i in prog(k):
-            asr_res = self._transcribe_chunk(x[i*m : (i+1)*m], normalize=False)
+            chunk = x[i*m : (i+1)*m]
+            asr_res = self._transcribe_chunk(chunk, normalize=False)
             if asr_res == prev:
                 text += ['']
             else:
                 prev_len = len(prev)
                 text += [asr_res[prev_len:]]
             prev = asr_res
-            
-            # emo_res = self.recognize_chunk(x[i*m : (i+1)*m], normalize=False)
-            # emo_labels += [emo_res[0]]
-            # emo_dims += [emo_res[1:]]
 
-        # emo_dims = np.stack(emo_dims).T
-        return {
+            if add_emotion_info:
+                emo_res = self._recognize_chunk(x[i*m : (i+1)*m], normalize=False)
+                emo_labels += [emo_res[0]]
+                emo_dims += [emo_res[1:]]
+
+        if add_emotion_info:
+            emo_dims = np.stack(emo_dims).T
+        res = {
             'text': text[1:], 
             'length' : x.shape[0] // self.sr,
-            # 'emotion_labels': emo_labels, 
-            # 'arousal' : emo_dims[0], 
-            # 'dominance': emo_dims[1], 
-            # 'valence' : emo_dims[2]
         }
+        if add_emotion_info:
+            res['emotion_labels'] = emo_labels 
+            res['arousal'] = emo_dims[0]
+            res['dominance'] = emo_dims[1]
+            res['valence'] = emo_dims[2]
+        return res
 
-    def __call__(self, file_path, max_dist=1., extract_kw=False, verbose=True):
-        res = self._recognize_file(file_path, verbose=verbose)
-        segments = self.bridge(res, max_dist=max_dist, extract_kw=extract_kw)
+    def __call__(self, file_path, add_emotion_info=False, max_dist=1., extract_kw=False, verbose=True):
+        res = self._recognize_file(file_path, add_emotion_info=add_emotion_info, verbose=verbose)
+        segments = self.post_processor(res, add_emotion_info=add_emotion_info, max_dist=max_dist, extract_kw=extract_kw)
         return segments
         
 
