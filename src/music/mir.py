@@ -87,11 +87,7 @@ class MusicInformationRetreiver:
         
         audio, _ = librosa.load(file_path, sr=self.sr)
         length = audio.shape[0] / self.sr
-
-        onset_env = librosa.onset.onset_strength(y=audio, sr=self.sr, hop_length=self.hop_length)
-        onset_env = onset_env / onset_env.max()
         
-        ## segment boundaries
         bounds = self._extract_segment_bounds(audio, segment_threshold) + [length]
         segments = []
 
@@ -107,5 +103,5 @@ class MusicInformationRetreiver:
                 end = int(seg['end'] * self.sr)
                 seg |= self._predict_segment(audio[start:end], genre_threshold, inst_threshold)
             segments += [seg]
-        return segments, onset_env
+        return segments
         
