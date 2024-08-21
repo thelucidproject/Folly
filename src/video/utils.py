@@ -3,21 +3,26 @@ import cv2
 from PIL import Image
 import torch
 
+def slerp(v0, v1, t, DOT_THRESHOLD=0.999):
+    """ helper function to spherically interpolate two arrays v1 v2 """
+    device = v0.device
+    v0 = v0.cpu().numpy()
+    v1 = v1.cpu().numpy()
+    t = t.item()
 
-def slerp(v0, v1, t, DOT_THRESHOLD=0.99):
-    dot = torch.sum(v0 * v1 / (torch.norm(v0) * torch.norm(v1)))
-
-    if torch.abs(dot) > DOT_THRESHOLD:
+    dot = np.sum(v0 * v1 / (np.linalg.norm(v0) * np.linalg.norm(v1)))
+    if np.abs(dot) > DOT_THRESHOLD:
         v2 = (1 - t) * v0 + t * v1
     else:
-        theta_0 = torch.acos(dot)
-        sin_theta_0 = torch.sin(theta_0)
+        theta_0 = np.arccos(dot)
+        sin_theta_0 = np.sin(theta_0)
         theta_t = theta_0 * t
-        sin_theta_t = torch.sin(theta_t)
-        s0 = torch.sin(theta_0 - theta_t) / sin_theta_0
+        sin_theta_t = np.sin(theta_t)
+        s0 = np.sin(theta_0 - theta_t) / sin_theta_0
         s1 = sin_theta_t / sin_theta_0
         v2 = s0 * v0 + s1 * v1
-    return v2
+    return torch.from_numpy(v2).to(device)
+
 
 
 def get_mask(image):

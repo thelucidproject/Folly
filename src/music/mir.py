@@ -1,5 +1,5 @@
 import json
-from tqdm.autonotebook import trange
+from tqdm.autonotebook import tqdm
 import numpy as np
 import librosa
 
@@ -53,6 +53,9 @@ class MusicInformationRetreiver:
 
 
     def _predict_segment(self, seg, genre_threshold=0.3, inst_threshold=0.3):
+        diff = self.sr * 6 - seg.shape[0]
+        if diff > 0:
+            seg = np.pad(seg, (0, diff))
         emb = self.musicnn_embedding_model(seg)
         emo_pred = self.emo_head(emb)
         emo_pred = (emo_pred - 1) / 8
@@ -82,7 +85,8 @@ class MusicInformationRetreiver:
         segment_threshold=0.1, 
         add_segment_info=False,
         genre_threshold=0.3, 
-        inst_threshold=0.3
+        inst_threshold=0.3,
+        progress_bar=None
     ):
         
         audio, _ = librosa.load(file_path, sr=self.sr)
@@ -91,8 +95,8 @@ class MusicInformationRetreiver:
         bounds = self._extract_segment_bounds(audio, segment_threshold) + [length]
         segments = []
 
-        prog = trange if add_segment_info else range
-        for i in prog(1, len(bounds)):
+        prog = tqdm if progress_bar is None else progress_bar
+        for i in prog(range(1, len(bounds))):
             seg = {
                 'start': np.round(bounds[i-1], 3),
                 'end' : np.round(bounds[i], 3), 

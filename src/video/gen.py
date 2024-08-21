@@ -125,7 +125,7 @@ class VideoGenerator:
                 strength=strength,
                 generator=self.generator
             ).images
-        return frames
+        return frames[1:]
 
 
     def _encode_image(self, image):
@@ -152,12 +152,12 @@ class VideoGenerator:
             res += [self._decode_image(z)]
         return res
     
-    def _upsample(self, frames, scale=1, progress_bar=None):
+    def upsample(self, frames, scale=1, linear_interpolation=True, progress_bar=None):
         progress_bar = tqdm if progress_bar is None else progress_bar
         res = []
         for i, f in enumerate(progress_bar(frames[:-1])):
             res += [f]
-            res += self._interpolate(f, frames[i+1], scale - 1, linear=False)
+            res += self._interpolate(f, frames[i+1], scale - 1, linear=linear_interpolation)
         res += [frames[-1]]
         return res
     
@@ -182,6 +182,7 @@ class VideoGenerator:
         style='realistic',
         generation_fps=2,
         final_fps=20,
+        linear_interpolation=True,
         width=512, 
         height=512,
         strength=0.45,
@@ -198,10 +199,11 @@ class VideoGenerator:
         save_path=None,
         progress_bar=None
     ):
-        frames = [None]
+        frames = []
         progress_bar = tqdm if progress_bar is None else progress_bar
         for i, dur in enumerate(progress_bar(durations)):
             n = int(np.ceil(generation_fps * dur))
+            prev = None if i == 0 else frames[-1]
             seg_frames = self._generate_segment_frames(
                 prompt='' if prompts is None else prompts[i],
                 style=style,
@@ -214,7 +216,7 @@ class VideoGenerator:
                 move_factor=random.choice([0., 0.006]) if move_factors is None else move_factors[i],
                 width=width, 
                 height=height,
-                init_frame=frames[-1], 
+                init_frame=prev, 
                 negative_prompt=negative_prompt,
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
@@ -222,10 +224,14 @@ class VideoGenerator:
             )
             frames += seg_frames
         
-        frames = frames[1:]
         if final_fps > generation_fps:
             assert final_fps % generation_fps == 0
-            frames = self._upsample(frames, scale=final_fps // generation_fps, progress_bar=progress_bar)
+            frames = self.upsample(
+                frames, 
+                scale=final_fps // generation_fps, 
+                linear_interpolation=linear_interpolation, 
+                progress_bar=progress_bar
+            )
         if isinstance(save_path, str):
             pickle.dump(frames, open(save_path, 'wb'))
         return frames

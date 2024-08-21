@@ -4,7 +4,7 @@ import torch
 import math
 import librosa
 from omegaconf import OmegaConf, open_dict
-from tqdm.autonotebook import trange
+from tqdm.autonotebook import tqdm
 
 import nemo.collections.asr as nemo_asr
 from nemo.collections.asr.models.ctc_bpe_models import EncDecCTCModelBPE
@@ -161,18 +161,18 @@ class SpeechInformationRetreiver:
         dims = self.emo_reg_model(audio).detach()[0]
         return label[0], dims[0].item(), dims[1].item(), dims[2].item()
 
-    def _recognize_file(self, file_path, add_emotion_info=False, verbose=True):
+    def _recognize_file(self, file_path, add_emotion_info=False, progress_bar=None):
         self._reset_asr_parameters()
         x, _ = librosa.load(file_path, sr=self.sr)
 
         m = int(self.chunk_size * self.sr / 1000)
         k = x.shape[0] // m
-        prog = trange if verbose else range
+        prog = tqdm if progress_bar is None else progress_bar
         emo_labels = []
         emo_dims = []
         text = ['']
         prev = ''
-        for i in prog(k):
+        for i in prog(range(k)):
             chunk = x[i*m : (i+1)*m]
             asr_res = self._transcribe_chunk(chunk, normalize=False)
             if asr_res == prev:
@@ -200,8 +200,8 @@ class SpeechInformationRetreiver:
             res['valence'] = emo_dims[2]
         return res
 
-    def __call__(self, file_path, add_emotion_info=False, max_dist=1., extract_kw=False, verbose=True):
-        res = self._recognize_file(file_path, add_emotion_info=add_emotion_info, verbose=verbose)
+    def __call__(self, file_path, add_emotion_info=False, max_dist=1., extract_kw=False, progress_bar=None):
+        res = self._recognize_file(file_path, add_emotion_info=add_emotion_info, progress_bar=progress_bar)
         segments = self.post_processor(res, add_emotion_info=add_emotion_info, max_dist=max_dist, extract_kw=extract_kw)
         return segments
         
