@@ -122,7 +122,7 @@ class Demo:
             zoom_factors=zoom_factors,
             rotate_factors=rotate_factors,
             move_factors=move_factors,
-            guidance_scale=10.,
+            guidance_scale=7.,
             num_inference_steps=num_inference_steps,
             progress_bar=progress_bar,
             negative_prompt=negative_prompt,
@@ -227,11 +227,9 @@ class Demo:
                 generate_button = gr.Button("Generate")
                 video_gallery = gr.Gallery(
                     label="Segment Init Frames", 
-                    show_label=False, 
-                    elem_id="gallery", 
+                    type='pil',
                     columns=10,
-                    object_fit="contain", 
-                    height="auto"
+                    # height="auto"
                 )
                 generated_video = gr.Video(label="Generated Video")
         

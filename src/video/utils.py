@@ -31,7 +31,7 @@ def get_mask(image):
     return 255 - mask.astype('uint8')
 
 def zoom(image, factor=0.05, direction='in', fill_blanks=False):
-    if direction == 'in':
+    if direction == 'out':
         mask_width = int(factor * image.width / 2)
         mask_height = int(factor * image.height / 2)
         if mask_width == 0 and mask_height == 0:
@@ -41,7 +41,7 @@ def zoom(image, factor=0.05, direction='in', fill_blanks=False):
         blank[mask_width:-mask_width, mask_width:-mask_width] = resized_image
         resized_image = Image.fromarray(blank)
         
-    elif direction == 'out':
+    elif direction == 'in':
         original_width, original_height = image.size
         new_width = int(original_width * (1 + factor))
         new_height = int(original_height * (1 + factor))
