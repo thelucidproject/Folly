@@ -15,7 +15,7 @@ from .utils import *
 
 
 class VideoGenerator:
-    def __init__(self, model_name="SimianLuo/LCM_Dreamshaper_v7", seed=7):
+    def __init__(self, model_name="SimianLuo/LCM_Dreamshaper_v7"):
         self.i2i_pipe = AutoPipelineForImage2Image.from_pretrained(
             model_name,
             torch_dtype=torch.float16,
@@ -41,7 +41,6 @@ class VideoGenerator:
             tokenizer=self.i2i_pipe.tokenizer, 
             text_encoder=self.i2i_pipe.text_encoder
         )
-        self.generator = torch.Generator("cuda").manual_seed(seed)
 
     def _text_to_image(
         self,
@@ -50,7 +49,8 @@ class VideoGenerator:
         num_inference_steps=4, 
         guidance_scale=10., 
         width=512, 
-        height=512
+        height=512,
+        seed=7
     ):
         torch.cuda.empty_cache()
         return self.t2i_pipe(
@@ -58,7 +58,7 @@ class VideoGenerator:
             negative_prompt=negative_prompt,
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
-            generator=self.generator,
+            generator=torch.Generator("cuda").manual_seed(seed),
             width=width,
             height=height
         ).images[0]
@@ -81,15 +81,19 @@ class VideoGenerator:
         num_inference_steps=4,
         guidance_scale=8.,
         strength=0.4,
+        seed=7
     ):
         torch.cuda.empty_cache()
         prompt = f'a {style} photo of {prompt} with high quality, high details, 4k.'
         if init_frame is None:
             init_frame = self._text_to_image(
-                prompt, 
-                negative_prompt, 
-                num_inference_steps, 
-                guidance_scale
+                prompt=prompt, 
+                negative_prompt=negative_prompt, 
+                num_inference_steps=num_inference_steps, 
+                guidance_scale=guidance_scale,
+                width=width,
+                height=height,
+                seed=seed
             )
             init_strength = strength
         init_frame = init_frame.resize((width, height))
@@ -123,7 +127,7 @@ class VideoGenerator:
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
                 strength=strength,
-                generator=self.generator
+                generator=torch.Generator("cuda").manual_seed(seed)
             ).images
         return frames[1:]
 
@@ -195,6 +199,7 @@ class VideoGenerator:
         move_factors=None,
         guidance_scale=10.,
         num_inference_steps=4,
+        seed=7,
         negative_prompt='blurry, fuzzy, low quality, chaotic, poor details, dark, sad',
         save_path=None,
         progress_bar=None
@@ -221,6 +226,7 @@ class VideoGenerator:
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
                 strength=strength,
+                seed=seed
             )
             frames += seg_frames
         

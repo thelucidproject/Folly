@@ -5,6 +5,7 @@ import math
 import librosa
 from omegaconf import OmegaConf, open_dict
 from tqdm.autonotebook import tqdm
+from keybert import KeyBERT
 
 import nemo.collections.asr as nemo_asr
 from nemo.collections.asr.models.ctc_bpe_models import EncDecCTCModelBPE
@@ -13,7 +14,6 @@ from nemo.collections.asr.parts.utils.rnnt_utils import Hypothesis
 from speechbrain.inference.interfaces import foreign_class
 
 from .emo_dim import EmotionDimensionModel
-from .processor import PostProcessor
 
 
 class SpeechInformationRetreiver:
@@ -26,7 +26,7 @@ class SpeechInformationRetreiver:
         self.lookahead_size = lookahead_size 
         self.chunk_size = self.lookahead_size + self.encoder_step_length
 
-        self.post_processor = PostProcessor(num_keywords=num_keywords)
+        self.keyword_model = KeyBERT()
 
         ## SER
         self.emo_cls_model = foreign_class(
@@ -200,10 +200,78 @@ class SpeechInformationRetreiver:
             res['valence'] = emo_dims[2]
         return res
 
-    def __call__(self, file_path, add_emotion_info=False, max_dist=1., extract_kw=False, progress_bar=None):
-        res = self._recognize_file(file_path, add_emotion_info=add_emotion_info, progress_bar=progress_bar)
-        segments = self.post_processor(res, add_emotion_info=add_emotion_info, max_dist=max_dist, extract_kw=extract_kw)
+
+    def _extract_segment(self, asr_res, add_emotion_info=False):
+        va = np.array([0 if r == '' else 1 for r in asr_res['text']])
+        bin = asr_res['length'] / len(asr_res['text'])
+        times = np.arange(0, asr_res['length'], bin)
+        assert len(times) == len(asr_res['text'])
+
+        speech_on = np.where(
+            va > np.pad(va[:-1], (1,0))
+        )[0]
+        speech_off = np.where(
+            va > np.pad(va[1:], (0,1))
+        )[0] + 1
+
+        segments = []
+        for on, off in zip(speech_on, speech_off):
+            seg = {
+                'text' : ''.join(asr_res['text'][on:off]),
+                'start' : times[on],
+                'end' : times[off],
+                'duration' : times[off] - times[on],
+            }
+            if add_emotion_info:
+                seg['arousal'] = asr_res['arousal'][on:off].mean()
+                seg['valence'] = asr_res['valence'][on:off].mean()
+                seg['dominance'] = asr_res['dominance'][on:off].mean()
+            segments += [seg]
         return segments
+
+    def _refine_segments(self, segments, add_emotion_info=False, max_dist=1.):
+        res = []
+        i = 0
+        while i < len(segments):
+            j = i + 1
+            while j < len(segments) and segments[j]['start'] - segments[j-1]['end'] < max_dist:
+                j += 1
+            seg = {
+                'text' : ''.join([s['text'] for s in segments[i:j]]),
+                'start' : segments[i]['start'],
+                'end' : segments[j-1]['end'],
+                'duration' : segments[j-1]['end'] - segments[i]['start'],
+            }
+            if add_emotion_info:
+                seg['arousal'] = sum([s['arousal'] for s in segments[i:j]]) / (j - i)
+                seg['valence'] = sum([s['valence'] for s in segments[i:j]]) / (j - i)
+                seg['dominance'] = sum([s['dominance'] for s in segments[i:j]]) / (j - i)
+            res += [seg]
+            i = j
+        return res
+
+    def extract_keywords(self, segments, num_keywords):
+        def extract_kw(text):
+            keywords = self.keyword_model.extract_keywords(text, top_n=num_keywords)
+            return ', '.join([l[0] for l in keywords])
+
+        res = []
+        for s in segments:
+            s['text'] = extract_kw(s['text'])
+            res += [s]
+        return res
+
+    def __call__(self, file_path, add_emotion_info=False, progress_bar=None):
+        res = self._recognize_file(file_path, add_emotion_info=add_emotion_info, progress_bar=progress_bar)
+        segments = self._extract_segment(res, add_emotion_info=add_emotion_info)
+        return segments
+
+    def post_process(self, segments, add_emotion_info=False, max_dist=1., extract_kw=False, num_keywords=5):
+        segments = self._refine_segments(segments, add_emotion_info=add_emotion_info, max_dist=max_dist)
+        if extract_kw:
+            segments = self.extract_keywords(segments, num_keywords)
+        return segments
+        
         
 
             
