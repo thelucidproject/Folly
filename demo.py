@@ -43,7 +43,10 @@ class Demo:
         seg_plot = self.plot_segments(segments)
         emo_plot = self.plot_emotions(segments, keys=['valence', 'arousal'])
         durations = [seg['duration'] for seg in segments]
-        return seg_plot, emo_plot, str(durations)
+        text = [
+            f'Segment {i+1}:\n instruments:{seg["instrument"]}\n genres:{seg["genre"]}' for i,seg in enumerate(segments)
+        ]
+        return seg_plot, emo_plot, str(durations), '\n\n'.join(text)
 
     def preprocess_speech(self, speech_path):
         self.speech_segments = self.sir(
@@ -80,6 +83,7 @@ class Demo:
         height,
         seed,
         strength,
+        guidance_scale,
         num_inference_steps,
         durations,
         prompts, 
@@ -122,7 +126,7 @@ class Demo:
             zoom_factors=zoom_factors,
             rotate_factors=rotate_factors,
             move_factors=move_factors,
-            guidance_scale=7.,
+            guidance_scale=guidance_scale,
             num_inference_steps=num_inference_steps,
             progress_bar=progress_bar,
             negative_prompt=negative_prompt,
@@ -136,12 +140,15 @@ class Demo:
         return selected_frames, 'temp.mp4'
 
 
-    def upsample_video(self, generation_fps, final_fps, interpolation_type, music_path):
+    def upsample_video(self, generation_fps, final_fps, interpolation_type, music_path, audio_reactivity, smooth):
         gc.collect()
         temp_frames = self.gen.upsample(
             self.frames, 
             scale=final_fps // generation_fps, 
             linear_interpolation=interpolation_type == 'linear',
+            audio_reactivity=audio_reactivity,
+            audio_path=music_path,
+            smooth=smooth,
             progress_bar=gr.Progress().tqdm
         )
         self.gen.save_video(temp_frames, music_path, 'temp_up.mp4', fps=final_fps)
@@ -189,7 +196,9 @@ class Demo:
                     width = gr.Slider(minimum=128, step=128, maximum=1024, value=512, label="Video Width")
                     height = gr.Slider(minimum=128, step=128, maximum=1024, value=512, label="Video Height")
                     seed = gr.Slider(minimum=0, step=1, maximum=10000, value=7777, label="Random Seed")
-                    strength = gr.Slider(minimum=0.1, step=0.01, maximum=0.9, value=0.4, label="Dynamicity")
+                with gr.Row():
+                    strength = gr.Slider(minimum=0.1, step=0.01, maximum=0.9, value=0.4, label="Strength")
+                    guidance_scale = gr.Slider(minimum=0., step=0.1, maximum=20., value=4., label="guidance_scale")
                     num_inference_steps = gr.Slider(
                         minimum=1, step=1, maximum=10, value=4, label="Number of refinement steps"
                     )
@@ -236,7 +245,9 @@ class Demo:
                 gr.Markdown("# Video Upsampling")
                 with gr.Row():
                     interpolation_type = gr.Dropdown(["linear", "spherical"], label="Interpolation Type")
+                    audio_reactivity = gr.Checkbox(label='Audio Reactivity')
                     final_fps = gr.Slider(minimum=10, step=10, maximum=30, value=10, label="Final FPS")
+                    smooth = gr.Slider(minimum=0, step=0.01, maximum=1, value=0.1, label="Audio Reactivity Smoothing")
                 upsample_button = gr.Button("Upsample")
                 upsample_video = gr.Video(label="Upsampled Video")
                 
@@ -248,6 +259,7 @@ class Demo:
                     height, 
                     seed,
                     strength, 
+                    guidance_scale,
                     num_inference_steps, 
                     durations,
                     prompts, 
@@ -265,7 +277,7 @@ class Demo:
             )
             upsample_button.click(
                 self.upsample_video,
-                inputs=[generation_fps, final_fps, interpolation_type, music_file],
+                inputs=[generation_fps, final_fps, interpolation_type, music_file, audio_reactivity, smooth],
                 outputs=[upsample_video]
             )
         return demo
@@ -290,11 +302,12 @@ class Demo:
                 segment_plot = gr.Plot(label="Segments", format="png")
                 emotion_plot = gr.Plot(label="Segment Emotion", format="png")
                 durations = gr.Text(label='Segments Durations')
+                text = gr.Text(label='Segments Details')
             
             analyse_button.click(
                 self.analyse_music,
                 inputs=[music_file, segment_threshold, instrument_threshold, genre_threshold],
-                outputs=[segment_plot, emotion_plot, durations]
+                outputs=[segment_plot, emotion_plot, durations, text]
             )
         return demo
 

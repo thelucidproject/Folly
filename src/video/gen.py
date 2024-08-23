@@ -143,25 +143,49 @@ class VideoGenerator:
         )[0].cpu().detach()
         return self.t2i_pipe.image_processor.postprocess(image, output_type='pil', do_denormalize=[True])[0]
     
-    def _interpolate(self, image1, image2, steps=1, linear=True):
-        T = torch.linspace(0.0, 1.0, 2 + steps).to(torch.float16)[1:-1]
+    def _interpolate(self, image1, image2, steps=1, linear=True, weights=None):
+        if weights is None:
+            weights = torch.linspace(0.0, 1.0, 2 + steps).to(torch.float16)
+        else:
+            weights = (weights - weights[0]) / (weights[-1] - weights[0])
+            
         x = self._encode_image(image1)
         y = self._encode_image(image2)
         res = []
-        for t in T:
+        for w in weights[1:-1]:
             if linear:
-                z = torch.lerp(x, y, t)
+                z = torch.lerp(x, y, w)
             else:
-                z = slerp(x, y, t)
+                z = slerp(x, y, w)
             res += [self._decode_image(z)]
         return res
     
-    def upsample(self, frames, scale=1, linear_interpolation=True, progress_bar=None):
+    def upsample(
+        self, 
+        frames, 
+        scale=1, 
+        linear_interpolation=True, 
+        audio_reactivity=False, 
+        audio_path=None, 
+        smooth=0.,
+        progress_bar=None
+    ):
+        if audio_reactivity:
+            weights = self.load_audio_weights(audio_path, (len(frames)-1) * scale + 1, smooth=smooth)
+        else:
+            weights = None
+            
         progress_bar = tqdm if progress_bar is None else progress_bar
         res = []
         for i, f in enumerate(progress_bar(frames[:-1])):
             res += [f]
-            res += self._interpolate(f, frames[i+1], scale - 1, linear=linear_interpolation)
+            res += self._interpolate(
+                image1=f, 
+                image2=frames[i+1], 
+                steps=scale - 1, 
+                linear=linear_interpolation,
+                weights=None if not audio_reactivity else weights[i*scale: (i+1)*scale]
+            )
         res += [frames[-1]]
         return res
     
@@ -179,6 +203,22 @@ class VideoGenerator:
             audio_codec="aac",
             options={"crf": "10", "pix_fmt": "yuv420p"},
         )
+
+    def load_audio_weights(self, audio_path, n_frames, smooth=0.):
+        audio, sr = librosa.load(audio_path)
+        spec_raw = librosa.feature.melspectrogram(y=audio, sr=sr)
+        spec_max = np.amax(spec_raw, axis=0)
+        spec_norm = (spec_max - np.min(spec_max)) / np.ptp(spec_max)
+    
+        # Resize cumsum of spec norm to our desired number of interpolation frames
+        x_norm = np.linspace(0, spec_norm.shape[-1], spec_norm.shape[-1])
+        y_norm = np.cumsum(spec_norm)
+        y_norm /= y_norm[-1]
+        x_resize = np.linspace(0, y_norm.shape[-1], n_frames)
+    
+        T = np.interp(x_resize, x_norm, y_norm)
+        return T * (1 - smooth) + np.linspace(0.0, 1.0, T.shape[0]) * smooth
+        
 
     def generate(
         self, 
@@ -213,7 +253,7 @@ class VideoGenerator:
                 prompt='' if prompts is None else prompts[i],
                 style=style,
                 num_frames=n, 
-                rotate_direction=random.choice(['pos', 'neg']) if rotate_directions is None else rotate_direction[i], 
+                rotate_direction=random.choice(['pos', 'neg']) if rotate_directions is None else rotate_directions[i], 
                 zoom_direction=random.choice(['in', 'out']) if zoom_directions is None else zoom_directions[i],
                 move_direction=random.choice(['up', 'down', 'left', 'right']) if move_directions is None else move_directions[i],
                 zoom_factor=random.choice([0., 0.006]) if zoom_factors is None else zoom_factors[i],
