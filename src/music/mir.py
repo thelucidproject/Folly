@@ -62,19 +62,19 @@ class MusicInformationRetreiver:
         valence, arousal = emo_pred[:, 0], emo_pred[:, 1]
 
         emb = self.effnet_embedding_model(seg)
-        genre_pred = self.genre_head(emb).mean(axis=0)
-        inst_pred = self.inst_head(emb).mean(axis=0)
+        genre_pred = self.genre_head(emb)
+        inst_pred = self.inst_head(emb)
+
+        genre_ids = np.where(genre_pred > genre_threshold)[1]
+        genre = set([self.genre_classes[gid] for gid in genre_ids])
         
-        genre_ids = np.where(genre_pred > genre_threshold)[0]
-        genre = [self.genre_classes[gid] for gid in genre_ids]
-        
-        inst_ids = np.where(inst_pred > inst_threshold)[0]
-        instrument = [self.inst_classes[iid] for iid in inst_ids]
+        inst_ids = np.where(inst_pred > inst_threshold)[1]
+        instrument = set([self.inst_classes[iid] for iid in inst_ids])
         return {
             'valence' : valence.tolist(), 
             'arousal': arousal.tolist(),
-            'genre': genre, 
-            'instrument': instrument
+            'genre': list(genre), 
+            'instrument': list(instrument)
         }
         
 

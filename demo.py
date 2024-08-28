@@ -95,6 +95,7 @@ class Demo:
         move_factors,
         negative_prompt,
         generation_fps,
+        image_path,
         music_path
     ):
         durations = list(map(float, durations.strip().split(', ')))
@@ -119,6 +120,7 @@ class Demo:
             width=width, 
             height=height,
             strength=strength,
+            init_image_path=image_path,
             prompts=prompts, 
             rotate_directions=rotate_directions,
             zoom_directions=zoom_directions,
@@ -132,12 +134,12 @@ class Demo:
             negative_prompt=negative_prompt,
             seed=seed
         )
-        indices = [
-            int(np.ceil(sum(durations[:i])*generation_fps)) for i in range(len(durations))
-        ]
-        selected_frames = [self.frames[idx] for idx in indices]
-        self.gen.save_video(self.frames, music_path, 'temp.mp4', fps=generation_fps)
-        return selected_frames, 'temp.mp4'
+        # indices = [
+        #     int(np.ceil(sum(durations[:i])*generation_fps)) for i in range(len(durations))
+        # ]
+        # selected_frames = [self.frames[idx] for idx in indices]
+        self.gen.save_video(self.frames, 'temp.mp4', music_path, fps=generation_fps)
+        return 'temp.mp4'
 
 
     def upsample_video(self, generation_fps, final_fps, interpolation_type, music_path, audio_reactivity, smooth):
@@ -151,7 +153,7 @@ class Demo:
             smooth=smooth,
             progress_bar=gr.Progress().tqdm
         )
-        self.gen.save_video(temp_frames, music_path, 'temp_up.mp4', fps=final_fps)
+        self.gen.save_video(temp_frames, 'temp_up.mp4', music_path, fps=final_fps)
         del temp_frames
         gc.collect()
         return 'temp_up.mp4'
@@ -197,10 +199,10 @@ class Demo:
                     height = gr.Slider(minimum=128, step=128, maximum=1024, value=512, label="Video Height")
                     seed = gr.Slider(minimum=0, step=1, maximum=10000, value=7777, label="Random Seed")
                 with gr.Row():
-                    strength = gr.Slider(minimum=0.1, step=0.01, maximum=0.9, value=0.4, label="Strength")
+                    strength = gr.Slider(minimum=0.01, step=0.01, maximum=0.99, value=0.5, label="Strength")
                     guidance_scale = gr.Slider(minimum=0., step=0.1, maximum=20., value=4., label="guidance_scale")
                     num_inference_steps = gr.Slider(
-                        minimum=1, step=1, maximum=10, value=4, label="Number of refinement steps"
+                        minimum=1, step=1, maximum=10, value=5, label="Number of refinement steps"
                     )
             
                 durations = gr.Textbox(
@@ -231,15 +233,16 @@ class Demo:
                     lines=1, placeholder="Enter negative prompt", label="Negative Prompt"
                 )
                 generation_fps = gr.Slider(minimum=1, step=1, maximum=5, value=2, label="Generation FPS")
-                music_file = gr.Audio(label="Upload Music File", type='filepath', sources='upload')
+                image_file = gr.Image(label="Upload The Starting Image", type='filepath', sources='upload')
+                music_file = gr.Audio(label="Upload Music", type='filepath', sources='upload')
         
                 generate_button = gr.Button("Generate")
-                video_gallery = gr.Gallery(
-                    label="Segment Init Frames", 
-                    type='pil',
-                    columns=10,
-                    # height="auto"
-                )
+                # video_gallery = gr.Gallery(
+                #     label="Segment Init Frames", 
+                #     type='pil',
+                #     columns=10,
+                #     # height="auto"
+                # )
                 generated_video = gr.Video(label="Generated Video")
         
                 gr.Markdown("# Video Upsampling")
@@ -271,9 +274,10 @@ class Demo:
                     move_factors, 
                     negative_prompt, 
                     generation_fps, 
+                    image_file,
                     music_file
                 ],
-                outputs=[video_gallery, generated_video]
+                outputs=[generated_video]
             )
             upsample_button.click(
                 self.upsample_video,

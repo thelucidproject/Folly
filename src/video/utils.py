@@ -58,11 +58,10 @@ def zoom(image, factor=0.05, direction='in', fill_blanks=False):
         resized_image = inpaint(resized_image)
     return resized_image.convert('RGB')
     
-def rotate(image, factor=0.001, direction='pos', fill_blanks=False):
-    angle = 360 * factor
+def rotate(image, factor=0.01, direction='pos', fill_blanks=False):
     if direction == 'neg':
-        angle = -angle
-    rotated_image = image.rotate(angle, expand=False)
+        factor = -factor
+    rotated_image = image.rotate(factor, expand=False)
     if fill_blanks:
         rotated_image = inpaint(rotated_image)
     return rotated_image.convert('RGB')

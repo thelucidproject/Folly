@@ -84,7 +84,8 @@ class VideoGenerator:
         seed=7
     ):
         torch.cuda.empty_cache()
-        prompt = f'a {style} photo of {prompt} with high quality, high details, 4k.'
+        prompt = f'a {style} photo of {prompt} with high quality, a lot of details, 4k.'
+        n_steps = num_frames
         if init_frame is None:
             init_frame = self._text_to_image(
                 prompt=prompt, 
@@ -95,11 +96,9 @@ class VideoGenerator:
                 height=height,
                 seed=seed
             )
-            init_strength = strength
-        init_frame = init_frame.resize((width, height))
-        
+            n_steps -= 1
         frames = [init_frame]
-        for _ in range(num_frames):
+        for _ in range(n_steps):
             image = frames[-1]
             image = zoom(
                 image, 
@@ -129,7 +128,7 @@ class VideoGenerator:
                 strength=strength,
                 generator=torch.Generator("cuda").manual_seed(seed)
             ).images
-        return frames[1:]
+        return frames[-num_frames:]
 
 
     def _encode_image(self, image):
@@ -189,10 +188,14 @@ class VideoGenerator:
         res += [frames[-1]]
         return res
     
-    def save_video(self, frames, audio_path, save_path, fps=20):
-        audio, sr = librosa.load(audio_path)
-        idx = int(len(frames) / fps * sr) + 1
-        audio = torch.tensor(audio[:idx]).unsqueeze(0)
+    def save_video(self, frames, save_path, audio_path=None, fps=20):
+        if audio_path:
+            audio, sr = librosa.load(audio_path)
+            idx = int(len(frames) / fps * sr) + 1
+            audio = torch.tensor(audio[:idx]).unsqueeze(0)
+        else:
+            sr = None
+            audio = None
         
         write_video(
             save_path,
@@ -207,7 +210,7 @@ class VideoGenerator:
     def load_audio_weights(self, audio_path, n_frames, smooth=0.):
         audio, sr = librosa.load(audio_path)
         spec_raw = librosa.feature.melspectrogram(y=audio, sr=sr)
-        spec_max = np.amax(spec_raw, axis=0)
+        spec_max = np.mean(spec_raw, axis=0)
         spec_norm = (spec_max - np.min(spec_max)) / np.ptp(spec_max)
     
         # Resize cumsum of spec norm to our desired number of interpolation frames
@@ -230,6 +233,7 @@ class VideoGenerator:
         width=512, 
         height=512,
         strength=0.45,
+        init_image_path=None,
         prompts=None, 
         rotate_directions=None,
         zoom_directions=None,
@@ -240,15 +244,14 @@ class VideoGenerator:
         guidance_scale=10.,
         num_inference_steps=4,
         seed=7,
-        negative_prompt='blurry, fuzzy, low quality, chaotic, poor details, dark, sad',
-        save_path=None,
+        negative_prompt='blurry, fuzzy, low quality, low details, chaotic, poor details, dark, sad',
         progress_bar=None
     ):
-        frames = []
+        init_image = None if init_image_path is None else load_image(init_image_path).resize((width, height))
+        frames = [init_image]
         progress_bar = tqdm if progress_bar is None else progress_bar
         for i, dur in enumerate(progress_bar(durations)):
             n = int(np.ceil(generation_fps * dur))
-            prev = None if i == 0 else frames[-1]
             seg_frames = self._generate_segment_frames(
                 prompt='' if prompts is None else prompts[i],
                 style=style,
@@ -256,12 +259,12 @@ class VideoGenerator:
                 rotate_direction=random.choice(['pos', 'neg']) if rotate_directions is None else rotate_directions[i], 
                 zoom_direction=random.choice(['in', 'out']) if zoom_directions is None else zoom_directions[i],
                 move_direction=random.choice(['up', 'down', 'left', 'right']) if move_directions is None else move_directions[i],
-                zoom_factor=random.choice([0., 0.006]) if zoom_factors is None else zoom_factors[i],
-                rotate_factor=random.choice([0., 0.003]) if rotate_factors is None else rotate_factors[i],
-                move_factor=random.choice([0., 0.006]) if move_factors is None else move_factors[i],
+                zoom_factor=0.01 if zoom_factors is None else zoom_factors[i],
+                rotate_factor=0.01 if rotate_factors is None else rotate_factors[i],
+                move_factor=0.01 if move_factors is None else move_factors[i],
                 width=width, 
                 height=height,
-                init_frame=prev, 
+                init_frame=frames[-1], 
                 negative_prompt=negative_prompt,
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
@@ -269,7 +272,9 @@ class VideoGenerator:
                 seed=seed
             )
             frames += seg_frames
-        
+
+        if frames[0] is None:
+            frames = frames[1:]
         if final_fps > generation_fps:
             assert final_fps % generation_fps == 0
             frames = self.upsample(
@@ -278,7 +283,5 @@ class VideoGenerator:
                 linear_interpolation=linear_interpolation, 
                 progress_bar=progress_bar
             )
-        if isinstance(save_path, str):
-            pickle.dump(frames, open(save_path, 'wb'))
         return frames
         
