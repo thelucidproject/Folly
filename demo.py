@@ -142,7 +142,7 @@ class Demo:
         return 'temp.mp4'
 
 
-    def upsample_video(self, generation_fps, final_fps, interpolation_type, music_path, audio_reactivity, smooth):
+    def upsample_video(self, generation_fps, final_fps, interpolation_type, music_path, audio_reactivity):
         gc.collect()
         temp_frames = self.gen.upsample(
             self.frames, 
@@ -150,7 +150,6 @@ class Demo:
             linear_interpolation=interpolation_type == 'linear',
             audio_reactivity=audio_reactivity,
             audio_path=music_path,
-            smooth=smooth,
             progress_bar=gr.Progress().tqdm
         )
         self.gen.save_video(temp_frames, 'temp_up.mp4', music_path, fps=final_fps)
@@ -204,7 +203,10 @@ class Demo:
                     num_inference_steps = gr.Slider(
                         minimum=1, step=1, maximum=10, value=5, label="Number of refinement steps"
                     )
-            
+
+                negative_prompt = gr.Textbox(
+                    lines=1, placeholder="Enter negative prompt", label="Negative Prompt"
+                )
                 durations = gr.Textbox(
                     lines=1, placeholder="Enter durations separated by commas", label="Durations"
                 )
@@ -229,28 +231,22 @@ class Demo:
                 move_factors = gr.Textbox(
                     lines=1, placeholder="Enter move factors separated by commas", label="Move Factors"
                 )
-                negative_prompt = gr.Textbox(
-                    lines=1, placeholder="Enter negative prompt", label="Negative Prompt"
-                )
                 generation_fps = gr.Slider(minimum=1, step=1, maximum=5, value=2, label="Generation FPS")
                 image_file = gr.Image(label="Upload The Starting Image", type='filepath', sources='upload')
                 music_file = gr.Audio(label="Upload Music", type='filepath', sources='upload')
         
                 generate_button = gr.Button("Generate")
-                # video_gallery = gr.Gallery(
-                #     label="Segment Init Frames", 
-                #     type='pil',
-                #     columns=10,
-                #     # height="auto"
-                # )
                 generated_video = gr.Video(label="Generated Video")
         
                 gr.Markdown("# Video Upsampling")
                 with gr.Row():
                     interpolation_type = gr.Dropdown(["linear", "spherical"], label="Interpolation Type")
-                    audio_reactivity = gr.Checkbox(label='Audio Reactivity')
                     final_fps = gr.Slider(minimum=10, step=10, maximum=30, value=10, label="Final FPS")
-                    smooth = gr.Slider(minimum=0, step=0.01, maximum=1, value=0.1, label="Audio Reactivity Smoothing")
+                    audio_reactivity = gr.Slider(
+                        minimum=0, step=0.01, maximum=1, value=0.1, label="Audio Reactivity Amount"
+                    )
+                    
+                    
                 upsample_button = gr.Button("Upsample")
                 upsample_video = gr.Video(label="Upsampled Video")
                 
@@ -281,7 +277,7 @@ class Demo:
             )
             upsample_button.click(
                 self.upsample_video,
-                inputs=[generation_fps, final_fps, interpolation_type, music_file, audio_reactivity, smooth],
+                inputs=[generation_fps, final_fps, interpolation_type, music_file, audio_reactivity],
                 outputs=[upsample_video]
             )
         return demo
@@ -324,12 +320,13 @@ class Demo:
                 
                 with gr.Row():
                     max_dist = gr.Slider(
-                        minimum=1., step=0.5, maximum=10, value=5, label="Segments Max Distance"
+                        minimum=1., step=0.5, maximum=10, value=5, label="Merge Segments With Max Distance"
                     )
-                    extract_kw = gr.Checkbox(label='extract_keywords', info='Extract Keywords')
-                    num_keywords = gr.Slider(
-                        minimum=1, step=1, maximum=10, value=5, label="Number of Keywords"
-                    )
+                    with gr.Column():
+                        extract_kw = gr.Checkbox(label='extract_keywords', info='Extract Keywords')
+                        num_keywords = gr.Slider(
+                            minimum=1, step=1, maximum=10, value=5, label="Number of Keywords"
+                        )
 
                 analyse_button = gr.Button("Analyse")
                 segment_plot = gr.Plot(label="Segments", format="png")
@@ -364,4 +361,4 @@ if __name__ == '__main__':
     gen = VideoGenerator()
     
     demo = Demo(mir, sir, gen)
-    demo.run(share=True)
+    demo.run(share=True, server_port=8888)

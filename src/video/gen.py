@@ -164,15 +164,12 @@ class VideoGenerator:
         frames, 
         scale=1, 
         linear_interpolation=True, 
-        audio_reactivity=False, 
+        audio_reactivity=0, 
         audio_path=None, 
-        smooth=0.,
         progress_bar=None
     ):
-        if audio_reactivity:
-            weights = self.load_audio_weights(audio_path, (len(frames)-1) * scale + 1, smooth=smooth)
-        else:
-            weights = None
+        T = self.load_audio_weights(audio_path, (len(frames)-1) * scale + 1)
+        weights = T * audio_reactivity + np.linspace(0.0, 1.0, T.shape[0]) * (1 - audio_reactivity)
             
         progress_bar = tqdm if progress_bar is None else progress_bar
         res = []
@@ -183,7 +180,7 @@ class VideoGenerator:
                 image2=frames[i+1], 
                 steps=scale - 1, 
                 linear=linear_interpolation,
-                weights=None if not audio_reactivity else weights[i*scale: (i+1)*scale]
+                weights=weights[i*scale: (i+1)*scale]
             )
         res += [frames[-1]]
         return res
@@ -207,7 +204,7 @@ class VideoGenerator:
             options={"crf": "10", "pix_fmt": "yuv420p"},
         )
 
-    def load_audio_weights(self, audio_path, n_frames, smooth=0.):
+    def load_audio_weights(self, audio_path, n_frames):
         audio, sr = librosa.load(audio_path)
         spec_raw = librosa.feature.melspectrogram(y=audio, sr=sr)
         spec_max = np.mean(spec_raw, axis=0)
@@ -219,8 +216,7 @@ class VideoGenerator:
         y_norm /= y_norm[-1]
         x_resize = np.linspace(0, y_norm.shape[-1], n_frames)
     
-        T = np.interp(x_resize, x_norm, y_norm)
-        return T * (1 - smooth) + np.linspace(0.0, 1.0, T.shape[0]) * smooth
+        return np.interp(x_resize, x_norm, y_norm)
         
 
     def generate(
