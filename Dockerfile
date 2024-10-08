@@ -41,6 +41,8 @@ RUN pip install --upgrade pip && \
 
 # Clone the Folly repository
 RUN git clone https://github.com/Folly/Folly /app/Folly
+# COPY . /app
+
 
 # Set the working directory to the Folly project directory
 WORKDIR /app/Folly
