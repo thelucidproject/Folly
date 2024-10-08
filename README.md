@@ -19,3 +19,10 @@ pip install git+https://github.com/NVIDIA/NeMo.git
 pip install scikit-learn essentia-tensorflow BeatNet
 pip install diffusers stable_diffusion_videos keybert
 ```
+
+## Using Docker Image
+```
+docker build -t folly-image .
+docker run --gpus all -it --rm folly-image
+```
+
